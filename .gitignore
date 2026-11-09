@@ -13,3 +13,6 @@ index.pkl
 
 # macOS
 .DS_Store
+
+# 本機 embedding 模型快取（約 0.2 GB）
+.model_cache/

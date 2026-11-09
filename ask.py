@@ -10,7 +10,8 @@ from pathlib import Path
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
-from sklearn.metrics.pairwise import linear_kernel
+
+import ingest
 
 INDEX_FILE = Path(__file__).parent / "index.pkl"
 MODEL = "claude-haiku-5-5"
@@ -22,11 +23,11 @@ def retrieve(question: str, top_k: int = TOP_K) -> list[dict]:
     with open(INDEX_FILE, "rb") as f:
         index = pickle.load(f)
 
-    question_vec = index["vectorizer"].transform([question])
-    # 問題跟每一段做相似度比較，分數越高越像（0 = 完全沒重疊）
-    scores = linear_kernel(question_vec, index["matrix"]).ravel()
+    question_vec = ingest.embed([question])[0]
+    # 問題跟每一段做內積，分數越高「意思」越接近（向量已正規化，相當於夾角相似度）
+    scores = index["matrix"] @ question_vec
     best = scores.argsort()[::-1][:top_k]
-    return [{**index["chunks"][i], "score": float(scores[i])} for i in best if scores[i] > 0]
+    return [{**index["chunks"][i], "score": float(scores[i])} for i in best]
 
 
 def build_prompt(question: str, hits: list[dict]) -> str:
@@ -55,7 +56,9 @@ def answer(question: str) -> tuple[str, list[dict]]:
         max_tokens=600,
         messages=[{"role": "user", "content": build_prompt(question, hits)}],
     )
-    return response.content[0].text, hits
+    # 回覆可能包含「思考區塊」等非文字內容，只取文字區塊
+    text = "".join(b.text for b in response.content if b.type == "text")
+    return text.strip() or "（模型沒有回傳文字，請再試一次）", hits
 
 
 def main():

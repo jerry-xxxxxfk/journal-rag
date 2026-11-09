@@ -7,11 +7,31 @@
 
 import pickle
 import sys
+import warnings
 from pathlib import Path
 
-from sklearn.feature_extraction.text import TfidfVectorizer
+import numpy as np
+
+warnings.filterwarnings("ignore")  # 隱藏套件在舊版 macOS 上的無害警告
 
 INDEX_FILE = Path(__file__).parent / "index.pkl"
+MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+# 模型放在專案資料夾內（已被 .gitignore 忽略），避免被系統清掉暫存後要重新下載
+MODEL_CACHE = Path(__file__).parent / ".model_cache"
+
+_model = None
+
+
+def embed(texts: list[str]) -> np.ndarray:
+    """把文字轉成「意思」的數字（embedding），並正規化成長度 1 的向量。"""
+    global _model
+    if _model is None:
+        from fastembed import TextEmbedding
+
+        _model = TextEmbedding(MODEL_NAME, cache_dir=str(MODEL_CACHE))
+    vectors = np.array(list(_model.embed(texts)))
+    # 正規化：長度都變成 1，之後「內積」就等於「夾角相似度」，值越大越像
+    return vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
 
 
 def split_into_chunks(path: Path) -> list[dict]:
@@ -48,13 +68,9 @@ def load_chunks(folder: Path) -> list[dict]:
     return chunks
 
 
-def build_index(chunks: list[dict]):
-    """把每一段文字轉成一串數字（TF-IDF），之後才能比較「誰跟問題最像」。"""
-    # analyzer="char"：以「字元片段」為單位，中文不用先斷詞也能比對
-    # ngram_range=(1, 2)：同時看單字和連續兩個字（例如「爬蟲」「蟲被」）
-    vectorizer = TfidfVectorizer(analyzer="char", ngram_range=(1, 2))
-    matrix = vectorizer.fit_transform(c["text"] for c in chunks)
-    return vectorizer, matrix
+def build_index(chunks: list[dict]) -> np.ndarray:
+    """每一段文字 → 一個 384 維的向量，回傳 (段數, 384) 的矩陣。"""
+    return embed([c["text"] for c in chunks])
 
 
 def main():
@@ -63,9 +79,9 @@ def main():
     if not chunks:
         sys.exit(f"在 {folder} 找不到任何 .md 檔")
 
-    vectorizer, matrix = build_index(chunks)
+    matrix = build_index(chunks)
     with open(INDEX_FILE, "wb") as f:
-        pickle.dump({"vectorizer": vectorizer, "matrix": matrix, "chunks": chunks}, f)
+        pickle.dump({"matrix": matrix, "chunks": chunks, "model": MODEL_NAME}, f)
 
     print(f"完成：讀取 {folder}，切成 {len(chunks)} 段，索引存到 {INDEX_FILE.name}")
 
