@@ -1,0 +1,15 @@
+# 金鑰：絕對不能上傳
+.env
+
+# Python 虛擬環境與快取
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# 本機真實資料與索引（只上傳 sample_data）
+my_data/
+index.pkl
+
+# macOS
+.DS_Store
