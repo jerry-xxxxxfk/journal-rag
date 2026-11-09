@@ -72,6 +72,16 @@ python ask.py "網站不讓我進去怎麼辦"
 - 注意：stdio 模式下 stdout 是通訊管道，程式中不能使用 `print()`。
 - 測試會真的啟動 server，用 MCP client 連線、列出工具並呼叫（`tests/test_mcp_server.py`）。
 
+### 接上 Claude Code
+
+```bash
+# 路徑請換成你自己的（要用 venv 裡的 python，才找得到套件）
+claude mcp add journal-rag -- /path/to/journal-rag/venv/bin/python /path/to/journal-rag/mcp_server.py
+claude mcp list        # 應顯示 journal-rag: ✔ Connected
+```
+
+註冊後重新啟動 Claude Code，就可以直接用自然語言問。實測：問「我日誌裡有寫過 403 嗎？」，Claude Code 呼叫 `search_journal`，回傳 `2026-10-05.md｜遇到的困難`（相似度 0.44，排第 1）的原文。
+
 ## Agent
 
 `agent.py` 與 `ask.py` 的差別：`ask.py` 是固定流程（檢索一次 → 回答）；Agent 則由 Claude 自己決定下一步，直到資料足夠才回答。
