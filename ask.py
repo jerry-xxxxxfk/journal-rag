@@ -32,6 +32,16 @@ def retrieve(question: str, top_k: int = TOP_K) -> list[dict]:
     return [{**index["chunks"][i], "score": float(scores[i])} for i in best]
 
 
+def format_hits(hits: list[dict]) -> str:
+    """把檢索結果整理成文字（MCP server 與 Agent 共用）。"""
+    if not hits:
+        return "日誌裡沒有相關紀錄。"
+    return "\n\n".join(
+        f"【{h['source']}｜{h['heading']}｜相似度 {h['score']:.2f}】\n{h['text']}"
+        for h in hits
+    )
+
+
 def build_prompt(question: str, hits: list[dict]) -> str:
     """組合：把找到的段落和問題包成一份給 Claude 的說明。"""
     materials = "\n\n".join(

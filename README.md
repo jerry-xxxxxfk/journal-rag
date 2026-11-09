@@ -2,7 +2,13 @@
 
 一個最小的 RAG（檢索增強生成）工具：對自己的學習日誌提問，Claude 只根據日誌內容回答，並附上引用來源。
 
-這是「RAG → MCP → Agent」三部曲的第 1 個作品。目的是用最小的程式量，把 RAG 的每一步都做清楚、講得出原理。
+這個 repo 包含「RAG → MCP → Agent」三個串在一起的小作品，目的是用最小的程式量，把每一步都做清楚、講得出原理：
+
+| 檔案 | 作品 | 做什麼 |
+| :-- | :-- | :-- |
+| `ingest.py` + `ask.py` | RAG | 切段、建 embedding 索引、檢索後讓 Claude 回答並附出處 |
+| `mcp_server.py` | MCP | 把「搜尋日誌」包成 MCP 工具，讓 Claude Code 等 MCP 用戶端直接呼叫 |
+| `agent.py` | Agent | Claude 自己決定用哪個工具、用幾次的多步驟迴圈（列出 / 搜尋 / 讀取日誌） |
 
 ## 運作方式
 
@@ -23,7 +29,7 @@ sample_data/*.md
 
 ## 使用方式
 
-需要 Python 3.9 以上與 [Anthropic API key](https://console.anthropic.com/)。
+需要 **Python 3.10 以上**（`mcp` 套件的要求）與 [Anthropic API key](https://console.anthropic.com/)。
 
 ```bash
 # 1. 建立環境並安裝套件
@@ -58,13 +64,47 @@ python ask.py "網站不讓我進去怎麼辦"
 
 `sample_data/` 內是虛構的範例日誌。想用自己的日誌，放進 `my_data/`（已被忽略，不會上傳），再執行 `python ingest.py my_data`。
 
+## MCP server
+
+`mcp_server.py` 把 `ask.retrieve()` 包成一個 MCP 工具 `search_journal`。MCP 是讓 AI 連接外部工具的統一規格：server 負責「自我介紹」（有什麼工具、何時使用）和「接受呼叫」，由 AI 自己決定要不要用。
+
+- 這個 server 只做搜尋，**不呼叫 Claude API**，所以不產生 API 費用。
+- 注意：stdio 模式下 stdout 是通訊管道，程式中不能使用 `print()`。
+- 測試會真的啟動 server，用 MCP client 連線、列出工具並呼叫（`tests/test_mcp_server.py`）。
+
+## Agent
+
+`agent.py` 與 `ask.py` 的差別：`ask.py` 是固定流程（檢索一次 → 回答）；Agent 則由 Claude 自己決定下一步，直到資料足夠才回答。
+
+```
+問題 → Claude 思考 ──要工具──► 程式執行工具 ──結果──┐
+          ▲                                        │
+          └────────────────────────────────────────┘
+          │ 資料足夠
+          ▼
+        最終答案
+```
+
+可用工具：`list_journals`（列出檔名）、`search_journal`（語意搜尋）、`read_journal`（讀整篇）。
+
+```bash
+python agent.py "比較我 10 月初和 10 月底的學習重點有什麼變化？"
+```
+
+實際執行時，Claude 先呼叫 `list_journals`，再逐篇 `read_journal`（共 5 次工具呼叫），最後整理出比較。
+
+安全與成本設計：
+- 迴圈最多 6 輪，避免卡住一直花錢。
+- `read_journal` 只能讀日誌資料夾內實際存在的 `.md` 檔（以檔名對照表查找，而非直接拼接路徑），`../.env` 這類輸入一律拒絕，並有測試驗證。
+- 工具出錯時會標記 `is_error` 回報給 Claude，讓它自行調整。
+
 ## 測試
 
 ```bash
 python -m unittest discover -s tests -t . -v
 ```
 
-測試涵蓋切段與檢索，不呼叫 Claude API。檢索測試的標準是「正確的來源出現在前 3 名」，因為 `ask.py` 會把前 3 段一起交給 Claude。
+共 20 個測試，涵蓋切段、檢索、MCP server（端到端）與 Agent（用「照劇本回應的假 Claude」驗證迴圈與安全防護），全部不呼叫 Claude API。檢索測試的標準是「正確的來源出現在前 3 名」，因為 `ask.py` 會把前 3 段一起交給 Claude。
 
 ## 設計取捨與演進
 
@@ -92,9 +132,13 @@ TF-IDF 還有一個問題：相似度分數無法當信心指標，錯誤結果�
 - 使用的是最小的多語言模型（0.22 GB），更大的模型（如 `paraphrase-multilingual-mpnet-base-v2`，1.0 GB）可能排名更準，尚未測試。
 - 沒有設定「相似度太低就不回答」的門檻；完全無關的問題仍會取到 3 段，靠提示詞讓 Claude 回答「沒有相關紀錄」。
 - 索引存成單一 pickle 檔，資料量大時應改用向量資料庫。
+- Agent 只用 4 篇日誌示範，Claude 直接讀完全部，沒有展現到 `search_journal` 的價值；資料量大時才會看出差別，尚未驗證。
+- Agent 直接呼叫本機函式，並沒有透過 MCP server 連線（兩者共用同一個 `retrieve()`）。
 
 ## 下一步
 
 - [x] 把 TF-IDF 換成 embedding
-- [ ] 第 2 個作品：把 `retrieve()` 包成 MCP server，讓 Claude 直接呼叫
-- [ ] 第 3 個作品：能自己選工具的多步驟 Agent
+- [x] 把 `retrieve()` 包成 MCP server
+- [x] 能自己選工具的多步驟 Agent
+- [ ] 讓 Agent 改成透過 MCP 連線取用工具
+- [ ] 用更多、更長的日誌做系統性評估

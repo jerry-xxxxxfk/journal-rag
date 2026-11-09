@@ -18,16 +18,6 @@ mcp = MCPServer(
 )
 
 
-def format_hits(hits: list[dict]) -> str:
-    """把檢索結果整理成 Claude 容易閱讀的文字。"""
-    if not hits:
-        return "日誌裡沒有相關紀錄。"
-    return "\n\n".join(
-        f"【{h['source']}｜{h['heading']}｜相似度 {h['score']:.2f}】\n{h['text']}"
-        for h in hits
-    )
-
-
 @mcp.tool()
 def search_journal(question: str, top_k: int = 3) -> str:
     """在使用者的學習日誌中搜尋與問題最相關的段落。
@@ -45,7 +35,7 @@ def search_journal(question: str, top_k: int = 3) -> str:
         hits = ask.retrieve(question, top_k=top_k)
     except FileNotFoundError:
         return "找不到索引檔，請先在專案資料夾執行：python ingest.py"
-    return format_hits(hits)
+    return ask.format_hits(hits)
 
 
 if __name__ == "__main__":
