@@ -4,6 +4,7 @@
     python ask.py "我爬蟲遇到什麼問題？"
 """
 
+import os
 import pickle
 import sys
 from pathlib import Path
@@ -13,7 +14,8 @@ from dotenv import load_dotenv
 
 import ingest
 
-INDEX_FILE = Path(__file__).parent / "index.pkl"
+# 預設讀專案內的 index.pkl；也可以用環境變數 JOURNAL_INDEX 指定別的索引檔
+INDEX_FILE = Path(os.environ.get("JOURNAL_INDEX", Path(__file__).parent / "index.pkl"))
 MODEL = "claude-haiku-5-5"
 TOP_K = 3  # 每次找最相關的幾段
 

@@ -1,3 +1,4 @@
 anthropic==0.125.0
 fastembed==0.7.4
+mcp==2.3.0
 python-dotenv==1.2.1
