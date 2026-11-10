@@ -82,6 +82,8 @@ claude mcp list        # 應顯示 journal-rag: ✔ Connected
 
 註冊後重新啟動 Claude Code，就可以直接用自然語言問。實測：問「我日誌裡有寫過 403 嗎？」，Claude Code 呼叫 `search_journal`，回傳 `2026-10-05.md｜遇到的困難`（相似度 0.44，排第 1）的原文。
 
+![Claude Code 呼叫 search_journal 的實際畫面](docs/mcp-search-journal.png)
+
 ## Agent
 
 `agent.py` 與 `ask.py` 的差別：`ask.py` 是固定流程（檢索一次 → 回答）；Agent 則由 Claude 自己決定下一步，直到資料足夠才回答。
@@ -109,6 +111,8 @@ python agent.py "比較我 10 月初和 10 月底的學習重點有什麼變化�
 ```
 
 實際執行時（工具呼叫全部經過 MCP），Claude 先呼叫 `list_journals`，再逐篇 `read_journal`（共 5 次工具呼叫），最後整理出比較。
+
+![Agent 透過 MCP 自己選工具的實際畫面](docs/agent-via-mcp.png)
 
 安全與成本設計：
 - 迴圈最多 6 輪，避免卡住一直花錢。
