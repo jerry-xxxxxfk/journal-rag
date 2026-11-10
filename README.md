@@ -8,7 +8,7 @@
 | :-- | :-- | :-- |
 | `ingest.py` + `ask.py` | RAG | 切段、建 embedding 索引、檢索後讓 Claude 回答並附出處 |
 | `mcp_server.py` | MCP | 把「搜尋日誌」包成 MCP 工具，讓 Claude Code 等 MCP 用戶端直接呼叫 |
-| `agent.py` | Agent | Claude 自己決定用哪個工具、用幾次的多步驟迴圈（列出 / 搜尋 / 讀取日誌） |
+| `agent.py` | Agent | MCP 用戶端：向 `mcp_server.py` 取得工具清單，由 Claude 自己決定用哪個工具、用幾次的多步驟迴圈 |
 
 ## 運作方式
 
@@ -95,17 +95,25 @@ claude mcp list        # 應顯示 journal-rag: ✔ Connected
         最終答案
 ```
 
-可用工具：`list_journals`（列出檔名）、`search_journal`（語意搜尋）、`read_journal`（讀整篇）。
+**工具不寫在 `agent.py` 裡，而是由 `mcp_server.py` 提供**：Agent 啟動時以子程序方式連上 MCP server、詢問有哪些工具，轉成 Claude API 的格式交給 Claude；Claude 要用工具時，Agent 再透過 `call_tool()` 轉給 server 執行。所以 Claude Code 和這個 Agent 用的是同一組工具，只需維護一份。
+
+```
+agent.py（MCP 用戶端）──MCP 協定──► mcp_server.py
+   │ list_tools → 工具清單 → 交給 Claude            ├─ list_journals（列出檔名）
+   └ Claude 要工具 → call_tool → 結果還給 Claude     ├─ search_journal（語意搜尋）
+                                                    └─ read_journal（讀整篇）
+```
 
 ```bash
 python agent.py "比較我 10 月初和 10 月底的學習重點有什麼變化？"
 ```
 
-實際執行時，Claude 先呼叫 `list_journals`，再逐篇 `read_journal`（共 5 次工具呼叫），最後整理出比較。
+實際執行時（工具呼叫全部經過 MCP），Claude 先呼叫 `list_journals`，再逐篇 `read_journal`（共 5 次工具呼叫），最後整理出比較。
 
 安全與成本設計：
 - 迴圈最多 6 輪，避免卡住一直花錢。
-- `read_journal` 只能讀日誌資料夾內實際存在的 `.md` 檔（以檔名對照表查找，而非直接拼接路徑），`../.env` 這類輸入一律拒絕，並有測試驗證。
+- `read_journal`（在 MCP server 端）只能讀日誌資料夾內實際存在的 `.md` 檔（以檔名對照表查找，而非直接拼接路徑），`../.env` 這類輸入一律拒絕，並有測試驗證。
+- 工具失敗時 server 用 `ToolError` 回報，錯誤訊息（含「請改用 list_journals」的提示）會原樣傳給 Claude；若丟一般例外，Claude 只會看到籠統的失敗訊息。
 - 工具出錯時會標記 `is_error` 回報給 Claude，讓它自行調整。
 
 ## 測試
@@ -114,7 +122,7 @@ python agent.py "比較我 10 月初和 10 月底的學習重點有什麼變化�
 python -m unittest discover -s tests -t . -v
 ```
 
-共 20 個測試，涵蓋切段、檢索、MCP server（端到端）與 Agent（用「照劇本回應的假 Claude」驗證迴圈與安全防護），全部不呼叫 Claude API。檢索測試的標準是「正確的來源出現在前 3 名」，因為 `ask.py` 會把前 3 段一起交給 Claude。
+共 21 個測試，涵蓋切段、檢索、MCP server（端到端，含路徑穿越）與 Agent（用「照劇本回應的假 Claude」驅動迴圈，但工具走真的 MCP server），全部不呼叫 Claude API。檢索測試的標準是「正確的來源出現在前 3 名」，因為 `ask.py` 會把前 3 段一起交給 Claude。
 
 ## 設計取捨與演進
 
@@ -143,12 +151,12 @@ TF-IDF 還有一個問題：相似度分數無法當信心指標，錯誤結果�
 - 沒有設定「相似度太低就不回答」的門檻；完全無關的問題仍會取到 3 段，靠提示詞讓 Claude 回答「沒有相關紀錄」。
 - 索引存成單一 pickle 檔，資料量大時應改用向量資料庫。
 - Agent 只用 4 篇日誌示範，Claude 直接讀完全部，沒有展現到 `search_journal` 的價值；資料量大時才會看出差別，尚未驗證。
-- Agent 直接呼叫本機函式，並沒有透過 MCP server 連線（兩者共用同一個 `retrieve()`）。
+- Agent 每次執行都要啟動一個 MCP server 子程序並載入 embedding 模型，啟動會多花幾秒；多一層通訊也多一個可能出錯的環節。
 
 ## 下一步
 
 - [x] 把 TF-IDF 換成 embedding
 - [x] 把 `retrieve()` 包成 MCP server
 - [x] 能自己選工具的多步驟 Agent
-- [ ] 讓 Agent 改成透過 MCP 連線取用工具
+- [x] 讓 Agent 改成透過 MCP 連線取用工具
 - [ ] 用更多、更長的日誌做系統性評估
